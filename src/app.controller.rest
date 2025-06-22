@@ -1,0 +1,7 @@
+POST http://localhost:3000/meal
+content-type: application/json
+
+{
+    "meal": "Almoço",
+    "obs": "Rápido e fácil"
+}
