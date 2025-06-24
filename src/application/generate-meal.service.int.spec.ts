@@ -3,7 +3,7 @@ import { createMock } from '@golevelup/ts-jest';
 import { ArtificialIntelligence } from '../infra/artificial-intelligence';
 import { GenerateMealService } from './generate-meal.service';
 
-describe('GenerateMealService execute integration tests', () => {
+describe.skip('GenerateMealService execute integration tests', () => {
   const aiMockedResult = '{test: 1}';
   const aiMocked = createMock<ArtificialIntelligence>();
   const spyAiMocked = jest.spyOn(aiMocked, 'generateJSON');

@@ -1,6 +1,8 @@
-import { GoogleGenAI } from '@google/genai';
+import { FunctionCallingConfigMode, GoogleGenAI } from '@google/genai';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+function abc() {}
 
 @Injectable()
 export class ArtificialIntelligence {
@@ -21,7 +23,13 @@ export class ArtificialIntelligence {
       .create({
         model: this.model,
         config: {
-          temperature: 0.7,
+          toolConfig: {
+            functionCallingConfig: {
+              allowedFunctionNames: ['test'],
+              mode: FunctionCallingConfigMode.ANY,
+            },
+          },
+          temperature: 0.2,
           systemInstruction: system,
           responseMimeType: 'application/json',
         },
