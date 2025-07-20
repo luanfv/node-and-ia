@@ -1,51 +1,90 @@
 import OpenAI from 'openai';
 import { Injectable } from '@nestjs/common';
+import { ChatCompletionTool } from 'openai/resources/chat/completions';
+import { produtosEmEstoque } from '../infra/database/fake-database';
+import { ChatModel } from 'openai/resources/shared';
+
+type StrategyFunctionName = 'produtos_em_estoque';
 
 @Injectable()
 export class GenerateMealService {
-  private readonly systemRole: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
-    [
+  private readonly tools: ChatCompletionTool[];
+  private readonly model: ChatModel = 'gpt-4o-mini';
+  private readonly systemPrompt =
+    'Você é um cozinheiro que busca fazer refeições saborosas. Com base na refeição e desejo informados, crie até 3 opções saudáveis com até 10 ingredientes, utilizar **somente com itens do estoque**. Crie apenas opções válidas para refeição informada, retorne menos opções ou até mesmo vazio se não for válido. Retorne **somente** um JSON válido neste formato: { options: [{ meal: string, ingredients: string[] }]}';
+
+  private readonly strategyFunction: {
+    [T in StrategyFunctionName]: () => unknown;
+  };
+
+  constructor(private readonly openAi: OpenAI) {
+    this.tools = [
       {
-        role: 'system',
-        name: 'persona',
-        content:
-          'Você é um nutricionista que busca ajudar o equilíbrio entre uma refeição saudável e saborosa',
-      },
-      {
-        role: 'system',
-        name: 'goal',
-        content:
-          'Com base na refeição pedida e no desejo informado, crie 3 opções de refeições com 10 ou menos ingredientes para cada uma',
-      },
-      {
-        role: 'system',
-        name: 'output',
-        content:
-          'Retorne no formato JSON: [{ meal: string, ingredients: string[] }]',
+        type: 'function',
+        function: {
+          name: 'produtos_em_estoque',
+          description: 'Lista os produtos disponíveis em estoque.',
+          parameters: {
+            type: 'object',
+            properties: {},
+          },
+        },
       },
     ];
 
-  constructor(private readonly openAi: OpenAI) {}
+    this.strategyFunction = {
+      produtos_em_estoque: () => produtosEmEstoque(),
+    };
+  }
 
   async execute(meal: string, obs: string): Promise<string> {
-    const response = await this.openAi.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const inputMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: this.systemPrompt },
+      { role: 'user', content: `Refeição: ${meal}` },
+      { role: 'user', content: `Obs.: ${obs}` },
+    ];
+
+    const completion = await this.openAi.chat.completions.create({
+      model: this.model,
+      messages: inputMessages,
+      tools: this.tools,
       response_format: {
         type: 'json_object',
       },
-      messages: [
-        ...this.systemRole,
-        {
-          role: 'user',
-          content: `Refeição: ${meal}`,
-        },
-        {
-          role: 'user',
-          content: `Obs.: ${obs}`,
-        },
-      ],
       temperature: 0.2,
     });
-    return JSON.parse(response.choices[0].message.content ?? '');
+
+    const toolCall = completion.choices[0].message.tool_calls?.[0];
+
+    if (toolCall) {
+      const functionName = toolCall.function.name;
+      const callId = toolCall.id;
+      const result = this.strategyFunction[functionName]();
+      const newMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        ...inputMessages,
+        {
+          role: 'assistant',
+          tool_calls: [toolCall],
+        },
+        {
+          role: 'tool',
+          tool_call_id: callId,
+          content: JSON.stringify(result),
+        },
+      ];
+      const secondResponse = await this.openAi.chat.completions.create({
+        model: this.model,
+        messages: newMessages,
+        response_format: {
+          type: 'json_object',
+        },
+        temperature: 0.2,
+      });
+
+      const finalOutput = secondResponse.choices[0].message.content;
+      return JSON.parse(finalOutput ?? '');
+    }
+
+    return '';
   }
 }
